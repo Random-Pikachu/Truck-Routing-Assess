@@ -105,7 +105,7 @@ export function ForecastScrubber(props: Props) {
           <p className="text-xs text-ink-muted">The forecast layer couldn't load.</p>
           <button type="button" onClick={onRetry} className={cn(quietButton, 'h-8 px-2 text-xs')}>
             <RotateCcw className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
-            Retry
+            Try again
           </button>
         </div>
       )}
@@ -114,7 +114,7 @@ export function ForecastScrubber(props: Props) {
         <div className="relative pt-4">
           {showDepartureTick && (
             <span
-              className="absolute top-0 -translate-x-1/2 text-[11px] font-medium text-ink-muted"
+              className="absolute top-0 -translate-x-1/2 text-xs font-medium text-ink-muted"
               style={{ left: `calc(8px + (100% - 16px) * ${departureHour / lastHour})` }}
               aria-hidden="true"
             >

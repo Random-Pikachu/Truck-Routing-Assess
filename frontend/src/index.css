@@ -6,7 +6,7 @@
   /* Ink: one cool neutral hue, three steps */
   --color-ink: oklch(0.22 0.02 256);
   --color-ink-muted: oklch(0.46 0.018 256);
-  --color-ink-faint: oklch(0.6 0.014 256);
+  --color-ink-faint: oklch(0.53 0.014 256);
 
   /* Surfaces float over unpredictable map tiles */
   --color-surface: oklch(0.992 0.002 256 / 0.93);

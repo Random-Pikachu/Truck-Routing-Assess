@@ -63,6 +63,18 @@ export function fieldForServerError(message: string, destinationText: string): F
   return null
 }
 
+// backend messages say what went wrong; add how to fix it
+export function friendlyServerMessage(message: string): string {
+  const lower = message.toLowerCase()
+  const quoted = /'(.*)'/.exec(message)?.[1]
+  if (lower.startsWith('no location found') && quoted) {
+    return `Couldn't find "${quoted}". Check the spelling or pick a place from the suggestions.`
+  }
+  if (lower.includes('same place')) return 'Origin and destination are the same place. Choose a different destination.'
+  if (lower.includes('departure time is in the past')) return 'Choose a departure time from now onwards.'
+  return message
+}
+
 export function hoursBetween(from: string, to: string): number {
   return Math.round((new Date(to).getTime() - new Date(from).getTime()) / HOUR_MS)
 }

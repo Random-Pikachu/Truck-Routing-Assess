@@ -86,7 +86,7 @@ export function TripOptions(props: Props) {
             <label
               key={miles}
               className={cn(
-                'pressable flex h-9 cursor-pointer items-center justify-center rounded-lg text-sm font-medium tabular-nums',
+                'pressable flex h-9 cursor-pointer items-center justify-center rounded-lg text-sm font-medium tabular-nums pointer-coarse:h-11',
                 'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-accent',
                 interval === miles ? 'bg-white text-ink shadow-[var(--shadow-border)]' : 'text-ink-muted hover:text-ink',
               )}

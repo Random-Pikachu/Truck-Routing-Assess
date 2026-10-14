@@ -1,10 +1,10 @@
 import { LoaderCircle, Route as RouteIcon } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
 import { CheckpointList } from './components/CheckpointList'
 import { Dock, type Snap } from './components/Dock'
 import { ForecastScrubber, type ForecastStatus } from './components/ForecastScrubber'
-import { MapCanvas, type FramingRequest, type FramingTarget } from './components/MapCanvas'
+import type { FramingRequest, FramingTarget } from './components/MapCanvas'
 import { MapErrorBoundary } from './components/MapErrorBoundary'
 import { RouteList } from './components/RouteList'
 import { EmptyState, ErrorState, LoadingState } from './components/States'
@@ -29,6 +29,7 @@ import { cn, primaryButton } from './lib/styles'
 import {
   fieldForServerError,
   firstError,
+  friendlyServerMessage,
   hoursBetween,
   MAX_DAYS_AHEAD,
   NO_ERRORS,
@@ -37,7 +38,11 @@ import {
   type SampleTrip,
 } from './lib/trip'
 
+// MapLibre is most of the bundle; the dock renders and accepts input while it loads
+const MapCanvas = lazy(() => import('./components/MapCanvas').then((module) => ({ default: module.MapCanvas })))
+
 type Status = 'idle' | 'loading' | 'ready' | 'error'
+const SCRUBBER_RESERVE = 136
 type TripInputs = { origin: Waypoint | null; destination: Waypoint | null; departure: string; load: string; interval: number }
 
 function buildRequest(inputs: TripInputs): PlanRequest {
@@ -179,7 +184,7 @@ export default function App() {
           const message = error instanceof ApiError ? error.message : 'Unable to plan this trip. Try again.'
           const field = error instanceof ApiError && error.status === 400 ? fieldForServerError(message, request.destination) : null
           if (field) {
-            setErrors({ ...NO_ERRORS, [field]: message })
+            setErrors({ ...NO_ERRORS, [field]: friendlyServerMessage(message) })
             setStatus('idle')
             if (field === 'origin') originRef.current?.focus()
             else if (field === 'destination') destinationRef.current?.focus()
@@ -278,9 +283,10 @@ export default function App() {
   const obstruction = useMemo<Obstruction>(
     () => ({
       left: isMobile ? 0 : dockObstruction.left,
-      bottom: isMobile ? dockObstruction.bottom : scrubberHeight > 0 ? scrubberHeight + 16 : 0,
+      // the scrubber mounts with the results; reserve its usual height so the first framing already clears it
+      bottom: isMobile ? dockObstruction.bottom : status === 'ready' ? Math.max(scrubberHeight, SCRUBBER_RESERVE) + 16 : 0,
     }),
-    [isMobile, dockObstruction, scrubberHeight],
+    [isMobile, dockObstruction, scrubberHeight, status],
   )
 
   // markers for typed places use the coordinates the plan resolved them to
@@ -321,6 +327,7 @@ export default function App() {
   return (
     <>
       <MapErrorBoundary obstruction={obstruction}>
+        <Suspense fallback={<div className="fixed inset-0 z-0 bg-[oklch(0.95_0.004_256)]" aria-hidden="true" />}>
         <MapCanvas
         plan={plan}
         selectedRouteId={selectedRouteId}
@@ -338,12 +345,13 @@ export default function App() {
         onMapClick={onMapClick}
         onMoveWaypoint={placeWaypoint}
         />
+        </Suspense>
       </MapErrorBoundary>
 
       <Dock isMobile={isMobile} snap={snap} topPill={topPill} onSnap={setSnap} onObstruction={setDockObstruction}>
         <div className="grid gap-4">
           <header className="flex items-baseline gap-2 px-1 pt-1">
-            <h1 className="text-[15px] font-semibold tracking-tight">Spotter</h1>
+            <h1 className="text-base font-semibold tracking-tight">Spotter</h1>
             <p className="text-xs text-ink-muted">Weather-aware truck routing</p>
           </header>
 
@@ -394,12 +402,15 @@ export default function App() {
 
           <div className="h-px bg-hairline" role="presentation" />
 
-          <div aria-live="polite" className="grid gap-4">
+          <div className="grid gap-4">
             {status === 'idle' && <EmptyState onSample={onSample} />}
             {status === 'loading' && <LoadingState elapsedSeconds={elapsed} />}
             {status === 'error' && planError && <ErrorState message={planError} onRetry={() => runPlan(inputs)} />}
             {status === 'ready' && plan && (
               <>
+                <p className="sr-only" role="status">
+                  {plan.routes.length} routes found. {plan.reason}
+                </p>
                 {stale && (
                   <p className="rounded-lg bg-fill px-3 py-2 text-[13px] text-ink-muted" role="status">
                     Trip details changed. Find routes again to update these results.

@@ -9,4 +9,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { proxy: backend },
   preview: { proxy: backend },
+  // MapLibre GL alone is ~1 MB; it loads lazily in its own chunk after the planner
+  build: { chunkSizeWarningLimit: 1100 },
 })
