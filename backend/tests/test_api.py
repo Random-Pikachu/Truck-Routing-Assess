@@ -390,3 +390,104 @@ def testHeatmapUpstreamFailureIsA502(client: Client, fakeHeatmap: FakeHeatmapBui
 
 def testHeatmapOnlyAcceptsPost(client: Client) -> None:
     assert client.get("/api/trips/heatmap").status_code == 405
+
+
+# --- coordinates and reverse geocoding --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("41.87897, -87.66063", (41.87897, -87.66063)),
+        ("  38.627,-90.1994 ", (38.627, -90.1994)),
+        ("-33.8688, 151.2093", (-33.8688, 151.2093)),
+    ],
+)
+def testGeocodeAcceptsCoordinatesWithoutAnApiCall(
+    monkeypatch: pytest.MonkeyPatch, text: str, expected: tuple[float, float]
+) -> None:
+    def failIfCalled(*args: object, **kwargs: object) -> None:
+        raise AssertionError("no HTTP call expected for coordinates")
+
+    monkeypatch.setattr(ors.httpx, "get", failIfCalled)
+    point, label = ors.geocode(text)
+    assert point == expected
+    assert label == f"{expected[0]:.5f}, {expected[1]:.5f}"
+
+
+@pytest.mark.parametrize("text", ["95.0, 10.0", "10.0, 200.0"])
+def testGeocodeRejectsOutOfRangeCoordinates(text: str) -> None:
+    with pytest.raises(ValueError, match="valid latitude"):
+        ors.geocode(text)
+
+
+def testPlaceNamesWithNumbersStillGeocode(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {
+        "features": [
+            {"geometry": {"coordinates": [-73.99, 40.73]}, "properties": {"label": "5th Ave"}}
+        ]
+    }
+    monkeypatch.setenv("ORS_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ors.httpx, "get", lambda url, params, timeout: httpx.Response(200, json=body)
+    )
+    assert ors.geocode("5th Ave, 10003")[1] == "5th Ave"
+
+
+def testReverseEndpoint(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[float, float]] = []
+
+    def fakeReverse(lat: float, lon: float) -> str:
+        calls.append((lat, lon))
+        return "Howard Street, Normal, IL, USA"
+
+    monkeypatch.setattr(ors, "reverseGeocode", fakeReverse)
+    response = client.get("/api/reverse", {"lat": "40.5", "lon": "-89.0"})
+    assert response.status_code == 200
+    assert response.json() == {"label": "Howard Street, Normal, IL, USA", "lat": 40.5, "lon": -89.0}
+    assert calls == [(40.5, -89.0)]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"lat": "abc", "lon": "1"},
+        {"lat": "1"},
+        {"lat": "91", "lon": "0"},
+        {"lat": "0", "lon": "181"},
+    ],
+)
+def testReverseRejectsBadCoordinates(client: Client, params: dict) -> None:
+    assert client.get("/api/reverse", params).status_code == 400
+
+
+def testReverseUpstreamFailureIsA502(client: Client, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(lat: float, lon: float) -> str:
+        raise OrsError(503, "busy")
+
+    monkeypatch.setattr(ors, "reverseGeocode", broken)
+    assert client.get("/api/reverse", {"lat": "40", "lon": "-89"}).status_code == 502
+
+
+def testReverseGeocodeParsesAndCaches(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = {"features": [{"properties": {"label": "Howard Street, Normal, IL, USA"}}]}
+    calls: list[dict] = []
+
+    def get(url: str, params: dict, timeout: float) -> httpx.Response:
+        calls.append(params)
+        return httpx.Response(200, json=body)
+
+    monkeypatch.setenv("ORS_API_KEY", "test-key")
+    monkeypatch.setattr(ors.httpx, "get", get)
+    assert ors.reverseGeocode(40.5, -89.0) == "Howard Street, Normal, IL, USA"
+    assert ors.reverseGeocode(40.50001, -89.00001) == "Howard Street, Normal, IL, USA"
+    assert len(calls) == 1
+    assert calls[0]["point.lat"] == 40.5
+
+
+def testReverseGeocodeWithNoMatchFallsBackToCoordinates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORS_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ors.httpx, "get", lambda url, params, timeout: httpx.Response(200, json={"features": []})
+    )
+    assert ors.reverseGeocode(10.0, -40.0) == "10.00000, -40.00000"

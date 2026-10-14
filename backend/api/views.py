@@ -202,6 +202,25 @@ def geocode(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"results": results})
 
 
+@require_GET
+def reverse(request: HttpRequest) -> JsonResponse:
+    try:
+        lat = float(str(request.GET.get("lat", "")))
+        lon = float(str(request.GET.get("lon", "")))
+    except ValueError:
+        return errorResponse("'lat' and 'lon' must be numbers", 400)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return errorResponse("'lat' must be within -90..90 and 'lon' within -180..180", 400)
+
+    try:
+        label = ors.reverseGeocode(lat, lon)
+    except (OrsError, httpx.HTTPError):
+        logger.exception("Reverse geocoding failed for %s, %s", lat, lon)
+        return errorResponse("Place lookup is unavailable right now, try again", 502)
+
+    return JsonResponse({"label": label, "lat": lat, "lon": lon})
+
+
 @require_POST
 def planTripView(request: HttpRequest) -> JsonResponse:
     try:

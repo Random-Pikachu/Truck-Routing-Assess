@@ -1,6 +1,7 @@
 import hashlib
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ ROUTE_IDS = ["A", "B", "C"]
 SHORT_TRIP_MAX_MILES = 40
 ALTERNATIVES_LIMIT_ERROR = 2004
 VIA_OFFSET_FRACTION = 0.25
+COORDINATES_PATTERN = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 
 # places and roads barely change, so a day is safe
 GEOCODE_CACHE_SECONDS = 24 * 60 * 60
@@ -67,7 +69,22 @@ def readError(response: httpx.Response) -> OrsError:
     return OrsError(response.status_code, str(error))
 
 
+def parseCoordinates(text: str) -> Point | None:
+    match = COORDINATES_PATTERN.match(text)
+    if match is None:
+        return None
+    lat, lon = float(match.group(1)), float(match.group(2))
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError(f"'{text}' is not a valid latitude, longitude")
+    return lat, lon
+
+
 def geocode(text: str) -> tuple[Point, str]:
+    # "41.87897, -87.66063" (a map click or a picked suggestion) needs no lookup
+    coordinates = parseCoordinates(text)
+    if coordinates is not None:
+        return coordinates, f"{coordinates[0]:.5f}, {coordinates[1]:.5f}"
+
     key = textCacheKey("ors:geocode", text)
     cached = cache.get(key)
     if cached is not None:
@@ -111,6 +128,26 @@ def autocomplete(text: str, size: int = 5) -> list[tuple[Point, str]]:
         results.append(((lat, lon), feature["properties"]["label"]))
     cache.set(key, results, GEOCODE_CACHE_SECONDS)
     return results
+
+
+def reverseGeocode(lat: float, lon: float) -> str:
+    key = f"ors:reverse:{lat:.4f},{lon:.4f}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    response = httpx.get(
+        f"{ORS_BASE_URL}/geocode/reverse",
+        params={"api_key": getApiKey(), "point.lat": lat, "point.lon": lon, "size": 1},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise readError(response)
+
+    features = response.json()["features"]
+    label = features[0]["properties"]["label"] if features else f"{lat:.5f}, {lon:.5f}"
+    cache.set(key, label, GEOCODE_CACHE_SECONDS)
+    return label
 
 
 def requestDirections(coordinates: list[Point], alternatives: bool) -> list[dict]:
