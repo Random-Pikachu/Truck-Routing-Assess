@@ -96,6 +96,13 @@
     scale: 0.96;
   }
 
+  /* thin, stable scrollbar so content width never jumps when the list grows */
+  .scroll-area {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.22 0.02 256 / 0.22) transparent;
+    scrollbar-gutter: stable;
+  }
+
   .skeleton {
     background: linear-gradient(90deg, var(--color-fill) 0%, var(--color-fill-strong) 50%, var(--color-fill) 100%);
     background-size: 200% 100%;

@@ -25,7 +25,7 @@ export function WaypointSpine(props: Props) {
   const canSwap = Boolean(origin || destination)
 
   return (
-    <fieldset className="relative grid grid-cols-[16px_1fr_auto] gap-x-2">
+    <fieldset className="relative grid min-w-0 grid-cols-[16px_minmax(0,1fr)_auto] gap-x-2">
       <legend className="sr-only">Origin and destination</legend>
 
       {/* hollow origin node -> dashed connector -> solid destination pin */}

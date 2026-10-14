@@ -63,7 +63,7 @@ export function Dock({ isMobile, snap, topPill, children, onSnap, onObstruction 
         className="pointer-events-none fixed bottom-4 start-4 top-4 z-10 flex w-[380px] flex-col"
       >
         <div className="dock-surface pointer-events-auto flex max-h-full flex-col overflow-hidden rounded-2xl">
-          <div className="overflow-y-auto overscroll-contain p-2">{children}</div>
+          <div className="scroll-area overflow-y-auto overflow-x-hidden overscroll-contain p-2">{children}</div>
         </div>
       </aside>
     )
@@ -126,7 +126,7 @@ export function Dock({ isMobile, snap, topPill, children, onSnap, onObstruction 
         >
           <span className="h-1 w-9 rounded-full bg-ink/20" aria-hidden="true" />
         </button>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 pb-[max(12px,env(safe-area-inset-bottom))]">
           {children}
         </div>
       </section>

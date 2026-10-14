@@ -30,7 +30,7 @@ export function TripOptions(props: Props) {
 
   return (
     <div className="grid gap-3">
-      <div className="grid grid-cols-[1fr_7.5rem] gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-2">
         <div>
           <label htmlFor="departure" className={fieldLabel}>
             Departure
