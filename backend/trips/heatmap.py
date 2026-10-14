@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from math import cos, hypot, pi, radians
 
 from risk.engine import RiskLevel, classify
-from routing import ors
+from routing import ors, provider
 from routing.checkpoints import EARTH_RADIUS, Point, cumulativeDistance, haversine, pointAtMile
 from weather import openmeteo
 from weather.openmeteo import ONE_HOUR, HourlySeries, floorHour, gridKey, hourIndex
@@ -113,7 +113,7 @@ def buildHeatmap(
     if haversine(origin, destination) < SAME_PLACE_MILES:
         raise ValueError("Origin and destination are the same place")
 
-    routes = ors.getRouteOptions(origin, destination)
+    routes = provider.getRouteOptions(origin, destination, None, loadLb)
     routePoints = []
     for route in routes:
         routePoints.append(route.points)

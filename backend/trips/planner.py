@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from risk.engine import RiskLevel, classify
 from risk.scoring import RouteSummary, generateRouteSummary, recommendRoute
-from routing import ors
+from routing import ors, provider
 from routing.checkpoints import Checkpoint, Point, checkpointGenerator, haversine
 from weather import openmeteo
 from weather.openmeteo import WeatherReading
@@ -77,7 +77,7 @@ def planTrip(
     if haversine(origin, destination) < SAME_PLACE_MILES:
         raise ValueError("Origin and destination are the same place")
 
-    routes = ors.getRouteOptions(origin, destination)
+    routes = provider.getRouteOptions(origin, destination, departure, loadLb)
 
     checkpointsPerRoute: list[list[Checkpoint]] = []
     allCheckpoints: list[Checkpoint] = []
