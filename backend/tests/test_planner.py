@@ -24,11 +24,7 @@ WeatherRule = Callable[[Checkpoint], WeatherReading | None]
 
 
 def straightRoute(routeId: str, lon: float, miles: float, hours: float) -> RouteOption:
-    """A route running due north along one longitude, so tests can target it by `lon`.
-
-    Lengths avoid exact multiples of the interval until checkpoints get an
-    end-of-route tolerance (see the xfail in test_checkpoints.py).
-    """
+    """A route running due north along one longitude, so tests can target it by `lon`."""
     start = (38.0, lon)
     end = (38.0 + miles / MILES_PER_DEGREE, lon)
     return RouteOption(routeId, [start, end], [Step(0, 1, hours * 3600)], miles, hours * 3600)
@@ -44,8 +40,8 @@ def weather(wind: float = 5.0, rain: float = 0.0, snow: float = 0.0) -> WeatherR
 class FakeServices:
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.routes: list[RouteOption] = [
-            straightRoute("A", -90.0, 302, 7.0),
-            straightRoute("B", -88.0, 332, 8.0),
+            straightRoute("A", -90.0, 300, 7.0),
+            straightRoute("B", -88.0, 330, 8.0),
         ]
         self.places: dict[str, tuple[Point, str]] = {
             "Chicago": (CHICAGO, "Chicago, IL, USA"),
@@ -129,7 +125,8 @@ def testPlanCarriesInputsAndPlaces(services: FakeServices) -> None:
 
 def testCheckpointsCarryEtaWeatherAndRisk(services: FakeServices) -> None:
     route = plan(services).routes[0]
-    expectedMiles = [0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 302]
+    # exactly 300 miles: no near-duplicate checkpoint at 300.0000001
+    expectedMiles = [0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300]
     assert [round(c.mile) for c in route.checkpoints] == expectedMiles
     first, last = route.checkpoints[0], route.checkpoints[-1]
     assert first.eta == DEPARTURE

@@ -263,11 +263,25 @@ def testGeneratorExactMultipleHasNoDuplicateEnd() -> None:
     assert [cp.mile for cp in checkpoints] == pytest.approx([0, 25, 50])
 
 
-@pytest.mark.xfail(strict=True, reason="end-of-route tolerance not implemented yet")
 def testGeneratorNearlyExactMultipleHasNoNearDuplicateEnd() -> None:
     """A 50.004-mile route at 25 should not get checkpoints at both 50 and 50.004."""
     checkpoints = checkpointGenerator(northRoute([0, 50.004]), [Step(0, 1, 3000)], DEPARTURE, 25)
     assert [cp.mile for cp in checkpoints] == pytest.approx([0, 25, 50.004])
+
+
+@pytest.mark.parametrize(
+    ("routeMiles", "expectedMiles"),
+    [
+        pytest.param(50.5, [0, 25, 50.5], id="mark within a mile of the end is dropped"),
+        pytest.param(51.5, [0, 25, 50, 51.5], id="mark more than a mile before the end is kept"),
+        pytest.param(0.8, [0, 0.8], id="route under a mile still gets its destination"),
+    ],
+)
+def testGeneratorEndTolerance(routeMiles: float, expectedMiles: list[float]) -> None:
+    checkpoints = checkpointGenerator(
+        northRoute([0, routeMiles]), [Step(0, 1, 3000)], DEPARTURE, 25
+    )
+    assert [cp.mile for cp in checkpoints] == pytest.approx(expectedMiles)
 
 
 def testGeneratorSinglePointRoute() -> None:

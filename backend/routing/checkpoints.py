@@ -6,6 +6,7 @@ from math import atan2, cos, radians, sin, sqrt
 Point = tuple[float, float]
 
 EARTH_RADIUS = 3958.8
+END_TOLERANCE_MILES = 1.0  # a mark within a mile of the end is covered by the destination
 
 
 @dataclass(frozen=True)
@@ -104,13 +105,13 @@ def checkpointGenerator(
     seconds = secondsSinceDeparture(distances, steps)
     total = distances[-1]
     marks = [0.0]  # checkpoint marks
-    mark = 0.0
+    mark = float(interval)
     checkpoints = []
-    while mark < total:
-        mark += interval
-        if mark > total:
-            mark = total
+    while mark < total - END_TOLERANCE_MILES:
         marks.append(mark)
+        mark += interval
+    if total > 0:
+        marks.append(total)
 
     for mark in marks:
         lat, lon, elapsed = pointAtMile(mark, points, distances, seconds)
