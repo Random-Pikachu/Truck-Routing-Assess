@@ -7,7 +7,7 @@ import pytest
 
 from routing import ors, provider, tomtom
 from routing.checkpoints import Step, checkpointGenerator
-from routing.ors import OrsError, RouteOption
+from routing.ors import OrsError, RouteOption, viaPoints
 from routing.tomtom import EMPTY_TRUCK_LB, LB_PER_KG, TomTomError, grossWeightKg, parseRoute
 
 FIXTURES = Path(__file__).parent / "fixtures" / "tomtom"
@@ -285,3 +285,100 @@ def testBothFailingRaisesTheOrsError(tomtomKey: None, monkeypatch: pytest.Monkey
     monkeypatch.setattr(tomtom.httpx, "get", FakeGet({}, status=500))
     with pytest.raises(OrsError):
         provider.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)
+
+
+# ---------- detours when TomTom finds fewer than 3 different roads ----------
+
+
+class FakeRouter:
+    """Main request gets `main`, each detour (3 locations) gets what `detours` says for its via."""
+
+    def __init__(self, main: list[dict], detours: list[dict | None]) -> None:
+        self.main = main
+        self.vias: list[str] = []
+        for fraction in tomtom.DETOUR_FRACTIONS:
+            for via in viaPoints(CHICAGO, ST_LOUIS, fraction):
+                self.vias.append(f"{via[0]},{via[1]}")
+        self.detours = detours
+        self.calls: list[str] = []
+
+    def __call__(self, url: str, params: dict, timeout: float) -> httpx.Response:
+        path = url.split("/")[-2]
+        self.calls.append(path)
+        locations = path.split(":")
+        if len(locations) == 2:
+            return httpx.Response(200, json={"routes": self.main})
+        route = self.detours[self.vias.index(locations[1])]
+        if route is None:
+            body = {"detailedError": {"message": "MAP_MATCHING_FAILURE: Waypoint"}}
+            return httpx.Response(400, json=body)
+        return httpx.Response(200, json={"routes": [route]})
+
+
+FIXTURE_ROUTES = ROUTES_BODY["routes"]
+
+
+def testThreeDifferentAlternativesNeedNoDetours(
+    tomtomKey: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router = FakeRouter(FIXTURE_ROUTES, [])
+    monkeypatch.setattr(tomtom.httpx, "get", router)
+    assert len(tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)) == 3
+    assert len(router.calls) == 1
+
+
+def testOneRouteIsToppedUpWithDetoursInOrder(
+    tomtomKey: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router = FakeRouter(FIXTURE_ROUTES[:1], [FIXTURE_ROUTES[1], FIXTURE_ROUTES[2], None, None])
+    monkeypatch.setattr(tomtom.httpx, "get", router)
+
+    routes = tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)
+
+    assert [route.routeId for route in routes] == ["A", "B", "C"]
+    assert [route.totalSeconds for route in routes] == [17649, 18644, 19785]
+    assert len(router.calls) == 1 + 4  # the main call, then all detours at once
+
+
+def testDetourOnTheSameRoadIsSkipped(tomtomKey: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the first detour comes back as the direct road, so the next ones fill B and C
+    detours = [FIXTURE_ROUTES[0], FIXTURE_ROUTES[1], None, FIXTURE_ROUTES[2]]
+    monkeypatch.setattr(tomtom.httpx, "get", FakeRouter(FIXTURE_ROUTES[:1], detours))
+    routes = tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)
+    assert [route.totalSeconds for route in routes] == [17649, 18644, 19785]
+
+
+def testSameRoadAlternativesAreDropped(tomtomKey: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    main = [FIXTURE_ROUTES[0], FIXTURE_ROUTES[0]]
+    monkeypatch.setattr(tomtom.httpx, "get", FakeRouter(main, [None, None, None, None]))
+    routes = tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)
+    assert len(routes) == 1
+
+
+def testFailedDetoursLeaveFewerRoutes(tomtomKey: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    router = FakeRouter(FIXTURE_ROUTES[:1], [None, FIXTURE_ROUTES[2], None, None])
+    monkeypatch.setattr(tomtom.httpx, "get", router)
+    routes = tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 0)
+    assert [route.routeId for route in routes] == ["A", "B"]
+    assert routes[1].totalSeconds == 19785
+
+
+def testDetoursUseTheSameTruckAndDeparture(
+    tomtomKey: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict] = []
+    router = FakeRouter(FIXTURE_ROUTES[:1], [None, None, None, None])
+
+    def spy(url: str, params: dict, timeout: float) -> httpx.Response:
+        seen.append(params)
+        return router(url, params, timeout)
+
+    monkeypatch.setattr(tomtom.httpx, "get", spy)
+    tomtom.getRouteOptions(CHICAGO, ST_LOUIS, DEPARTURE, 45000)
+
+    for params in seen:
+        assert params["vehicleWeight"] == grossWeightKg(45000)
+        assert params["departAt"] == "2026-10-16T14:00:00+00:00"
+    detourParams = seen[1:]
+    for params in detourParams:
+        assert "maxAlternatives" not in params

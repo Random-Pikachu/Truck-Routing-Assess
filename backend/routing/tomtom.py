@@ -1,4 +1,6 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -7,7 +9,8 @@ from django.core.cache import cache
 from dotenv import load_dotenv
 
 from routing.checkpoints import Point, Step
-from routing.ors import METERS_PER_MILE, ROUTE_IDS, RouteOption
+from routing.ors import METERS_PER_MILE, ROUTE_IDS, RouteOption, viaPoints
+from routing.similarity import isSameRoad
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -21,6 +24,10 @@ EMPTY_TRUCK_LB = 35000
 
 # travel times include traffic, so they go stale faster than ORS routes
 ROUTES_CACHE_SECONDS = 60 * 60
+
+# when TomTom finds fewer than 3 different roads, force detours through points
+# this far to the side of the midpoint (share of the trip), nearest first
+DETOUR_FRACTIONS = [0.25, 0.5]
 
 
 class TomTomError(RuntimeError):
@@ -96,6 +103,58 @@ def routesCacheKey(
     )
 
 
+def requestRoutes(
+    locations: list[Point], departure: datetime | None, loadLb: float, alternatives: int
+) -> list[dict]:
+    params: dict = {
+        "key": getApiKey(),
+        "travelMode": "truck",
+        "vehicleCommercial": "true",
+        "vehicleWeight": grossWeightKg(loadLb),
+        "routeType": "fastest",
+        "traffic": "true",
+        "instructionsType": "coded",
+    }
+    if alternatives > 0:
+        params["maxAlternatives"] = alternatives
+        params["alternativeType"] = "anyRoute"
+    if departure is not None:
+        params["departAt"] = departure.astimezone(UTC).isoformat(timespec="seconds")
+
+    path = []
+    for lat, lon in locations:
+        path.append(f"{lat},{lon}")
+    response = httpx.get(
+        f"{TOMTOM_ROUTE_URL}/{':'.join(path)}/json", params=params, timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    if response.status_code != 200:
+        raise readError(response)
+
+    found = response.json().get("routes", [])
+    if not found:
+        raise TomTomError(response.status_code, "no route found")
+    return found
+
+
+def requestDetour(
+    origin: Point, via: Point, destination: Point, departure: datetime | None, loadLb: float
+) -> RouteOption | None:
+    try:
+        found = requestRoutes([origin, via, destination], departure, loadLb, alternatives=0)
+        return parseRoute(found[0], "")
+    except (TomTomError, httpx.HTTPError, KeyError):
+        # a via point can land somewhere with no road (a lake, a park), that detour is just skipped
+        return None
+
+
+def addIfNew(routes: list[RouteOption], candidate: RouteOption) -> None:
+    others = []
+    for route in routes:
+        others.append(route.points)
+    if len(routes) < len(ROUTE_IDS) and not isSameRoad(candidate.points, others):
+        routes.append(replace(candidate, routeId=ROUTE_IDS[len(routes)]))
+
+
 def getRouteOptions(
     origin: Point, destination: Point, departure: datetime | None, loadLb: float
 ) -> list[RouteOption]:
@@ -104,34 +163,28 @@ def getRouteOptions(
     if cached is not None:
         return cached
 
-    params: dict = {
-        "key": getApiKey(),
-        "travelMode": "truck",
-        "vehicleCommercial": "true",
-        "vehicleWeight": grossWeightKg(loadLb),
-        "routeType": "fastest",
-        "traffic": "true",
-        "maxAlternatives": len(ROUTE_IDS) - 1,
-        "alternativeType": "anyRoute",
-        "instructionsType": "coded",
-    }
-    if departure is not None:
-        params["departAt"] = departure.astimezone(UTC).isoformat(timespec="seconds")
+    routes: list[RouteOption] = []
+    found = requestRoutes([origin, destination], departure, loadLb, len(ROUTE_IDS) - 1)
+    for feature in found:
+        addIfNew(routes, parseRoute(feature, ""))
 
-    locations = f"{origin[0]},{origin[1]}:{destination[0]},{destination[1]}"
-    response = httpx.get(
-        f"{TOMTOM_ROUTE_URL}/{locations}/json", params=params, timeout=REQUEST_TIMEOUT_SECONDS
-    )
-    if response.status_code != 200:
-        raise readError(response)
+    if len(routes) < len(ROUTE_IDS):
+        vias = []
+        for fraction in DETOUR_FRACTIONS:
+            left, right = viaPoints(origin, destination, fraction)
+            vias.append(left)
+            vias.append(right)
 
-    found = response.json().get("routes", [])
-    if not found:
-        raise TomTomError(response.status_code, "no route found")
-
-    routes = []
-    for i in range(min(len(found), len(ROUTE_IDS))):
-        routes.append(parseRoute(found[i], ROUTE_IDS[i]))
+        # all detours at once, then taken in order so the closest ones win
+        with ThreadPoolExecutor(max_workers=len(vias)) as pool:
+            detours = list(
+                pool.map(
+                    lambda via: requestDetour(origin, via, destination, departure, loadLb), vias
+                )
+            )
+        for detour in detours:
+            if detour is not None:
+                addIfNew(routes, detour)
 
     cache.set(key, routes, ROUTES_CACHE_SECONDS)
     return routes
