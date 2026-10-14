@@ -23,7 +23,7 @@ export function EmptyState({ onSample }: { onSample: (trip: SampleTrip) => void 
               <button
                 type="button"
                 onClick={() => onSample(trip)}
-                className={cn(quietButton, 'w-full justify-between px-2 font-normal')}
+                className="pressable flex h-9 w-full items-center justify-between gap-2 rounded-lg px-2 text-start text-sm text-ink hover:bg-fill"
               >
                 <span className="truncate">
                   {trip.origin} <span className="text-ink-faint">→</span> {trip.destination}
