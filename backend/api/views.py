@@ -6,9 +6,11 @@ import httpx
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
+from risk.engine import RiskLevel
 from routing import ors
 from routing.ors import OrsError
-from trips import planner
+from trips import heatmap, planner
+from trips.heatmap import Heatmap
 from trips.planner import PlannedCheckpoint, PlannedRoute, TripPlan
 from weather.openmeteo import WeatherError
 
@@ -91,7 +93,7 @@ def serializeTrip(plan: TripPlan) -> dict:
     }
 
 
-def parsePlanRequest(body: bytes) -> dict:
+def parseJsonObject(body: bytes, fields: list[str]) -> dict:
     try:
         data = json.loads(body)
     except ValueError as error:
@@ -99,17 +101,30 @@ def parsePlanRequest(body: bytes) -> dict:
     if not isinstance(data, dict):
         raise ValueError("Request body must be a JSON object")
 
-    for field in ["origin", "destination", "departure", "loadLb", "interval"]:
+    for field in fields:
         if field not in data:
             raise ValueError(f"Missing field '{field}'")
+    return data
 
-    for field in ["origin", "destination"]:
-        if not isinstance(data[field], str) or not data[field].strip():
-            raise ValueError(f"'{field}' must be a place name")
 
-    for field in ["loadLb", "interval"]:
-        if isinstance(data[field], bool) or not isinstance(data[field], int | float):
-            raise ValueError(f"'{field}' must be a number")
+def requirePlace(data: dict, field: str) -> str:
+    if not isinstance(data[field], str) or not data[field].strip():
+        raise ValueError(f"'{field}' must be a place name")
+    return data[field].strip()
+
+
+def requireNumber(data: dict, field: str) -> float:
+    if isinstance(data[field], bool) or not isinstance(data[field], int | float):
+        raise ValueError(f"'{field}' must be a number")
+    return data[field]
+
+
+def parsePlanRequest(body: bytes) -> dict:
+    data = parseJsonObject(body, ["origin", "destination", "departure", "loadLb", "interval"])
+    originText = requirePlace(data, "origin")
+    destinationText = requirePlace(data, "destination")
+    loadLb = float(requireNumber(data, "loadLb"))
+    interval = requireNumber(data, "interval")
 
     if not isinstance(data["departure"], str):
         raise ValueError("'departure' must be an ISO 8601 date-time string")
@@ -121,11 +136,46 @@ def parsePlanRequest(body: bytes) -> dict:
         ) from error
 
     return {
-        "originText": data["origin"].strip(),
-        "destinationText": data["destination"].strip(),
+        "originText": originText,
+        "destinationText": destinationText,
         "departure": departure,
-        "loadLb": float(data["loadLb"]),
-        "interval": data["interval"],
+        "loadLb": loadLb,
+        "interval": interval,
+    }
+
+
+def parseHeatmapRequest(body: bytes) -> dict:
+    data = parseJsonObject(body, ["origin", "destination", "loadLb"])
+    return {
+        "originText": requirePlace(data, "origin"),
+        "destinationText": requirePlace(data, "destination"),
+        "loadLb": float(requireNumber(data, "loadLb")),
+    }
+
+
+def serializeHeatmap(result: Heatmap) -> dict:
+    points = []
+    for lat, lon in result.points:
+        points.append([round(lat, COORDINATE_DECIMALS), round(lon, COORDINATE_DECIMALS)])
+
+    levels = []
+    for level in RiskLevel:
+        levels.append(level.name)
+
+    # risk as level numbers (index into `levels`) to keep the 49 frames small
+    risk = []
+    for row in result.risk:
+        numbers = []
+        for level in row:
+            numbers.append(None if level is None else int(level))
+        risk.append(numbers)
+
+    return {
+        "startHour": result.startHour.isoformat(),
+        "hours": len(result.risk),
+        "levels": levels,
+        "points": points,
+        "risk": risk,
     }
 
 
@@ -167,3 +217,20 @@ def planTripView(request: HttpRequest) -> JsonResponse:
         return errorResponse("Something went wrong while planning the trip", 500)
 
     return JsonResponse(serializeTrip(plan))
+
+
+@require_POST
+def heatmapView(request: HttpRequest) -> JsonResponse:
+    try:
+        args = parseHeatmapRequest(request.body)
+        result = heatmap.buildHeatmap(**args)
+    except (OrsError, WeatherError, httpx.HTTPError) as error:
+        logger.exception("Upstream service failed while building a heatmap")
+        return errorResponse(f"A routing or weather service failed: {error}", 502)
+    except ValueError as error:
+        return errorResponse(str(error), 400)
+    except Exception:
+        logger.exception("Unexpected error while building a heatmap")
+        return errorResponse("Something went wrong while building the heatmap", 500)
+
+    return JsonResponse(serializeHeatmap(result))

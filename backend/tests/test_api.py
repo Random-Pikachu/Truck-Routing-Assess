@@ -9,7 +9,8 @@ from risk.engine import RiskLevel
 from risk.scoring import RouteSummary
 from routing import ors
 from routing.ors import OrsError
-from trips import planner
+from trips import heatmap, planner
+from trips.heatmap import Heatmap
 from trips.planner import PlannedCheckpoint, PlannedRoute, TripPlan
 from weather.openmeteo import WeatherError, WeatherReading
 
@@ -314,3 +315,78 @@ def testCorsAllowsTheFrontendDevServer(client: Client) -> None:
 def testCorsBlocksOtherOrigins(client: Client) -> None:
     response = client.get("/api/health", HTTP_ORIGIN="https://evil.example")
     assert "Access-Control-Allow-Origin" not in response
+
+
+# --- heatmap --------------------------------------------------------------------
+
+HEATMAP_BODY = {"origin": "Chicago, IL", "destination": "St. Louis, MO", "loadLb": 42000}
+
+
+class FakeHeatmapBuilder:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.failure: Exception | None = None
+
+    def __call__(self, **kwargs: object) -> Heatmap:
+        self.calls.append(kwargs)
+        if self.failure is not None:
+            raise self.failure
+        risk = []
+        for h in range(49):
+            risk.append([RiskLevel.LOW, RiskLevel.SEVERE if h > 10 else RiskLevel.LOW, None])
+        points = [(41.123456789, -87.75), (40.0, -88.0), (39.25, -89.5)]
+        return Heatmap(startHour=DEPARTURE, points=points, risk=risk)
+
+
+@pytest.fixture
+def fakeHeatmap(monkeypatch: pytest.MonkeyPatch) -> FakeHeatmapBuilder:
+    fake = FakeHeatmapBuilder()
+    monkeypatch.setattr(heatmap, "buildHeatmap", fake)
+    return fake
+
+
+def postHeatmap(client: Client, body: object) -> httpx.Response:
+    return client.post("/api/trips/heatmap", data=json.dumps(body), content_type="application/json")
+
+
+def testHeatmapResponseShape(client: Client, fakeHeatmap: FakeHeatmapBuilder) -> None:
+    response = postHeatmap(client, HEATMAP_BODY)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["startHour"] == "2026-10-14T10:00:00+00:00"
+    assert data["hours"] == 49
+    assert data["levels"] == ["LOW", "MODERATE", "HIGH", "SEVERE", "NO_TRAVEL"]
+    assert data["points"][0] == [41.12346, -87.75]
+    assert data["risk"][0] == [0, 0, None]
+    assert data["risk"][11] == [0, 3, None]
+    assert fakeHeatmap.calls == [
+        {"originText": "Chicago, IL", "destinationText": "St. Louis, MO", "loadLb": 42000.0}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        pytest.param(
+            {"origin": "Chicago, IL", "destination": "St. Louis, MO"}, "loadLb", id="no load"
+        ),
+        pytest.param({**HEATMAP_BODY, "origin": ""}, "place name", id="blank origin"),
+        pytest.param({**HEATMAP_BODY, "loadLb": "lots"}, "number", id="load not a number"),
+    ],
+)
+def testHeatmapBadBodies(
+    client: Client, fakeHeatmap: FakeHeatmapBuilder, body: dict, message: str
+) -> None:
+    response = postHeatmap(client, body)
+    assert response.status_code == 400
+    assert message in response.json()["error"]
+    assert fakeHeatmap.calls == []
+
+
+def testHeatmapUpstreamFailureIsA502(client: Client, fakeHeatmap: FakeHeatmapBuilder) -> None:
+    fakeHeatmap.failure = WeatherError("Open-Meteo error 503: busy")
+    assert postHeatmap(client, HEATMAP_BODY).status_code == 502
+
+
+def testHeatmapOnlyAcceptsPost(client: Client) -> None:
+    assert client.get("/api/trips/heatmap").status_code == 405
