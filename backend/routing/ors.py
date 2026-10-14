@@ -72,6 +72,22 @@ def geocode(text: str) -> tuple[Point, str]:
     return (lat, lon), features[0]["properties"]["label"]
 
 
+def autocomplete(text: str, size: int = 5) -> list[tuple[Point, str]]:
+    response = httpx.get(
+        f"{ORS_BASE_URL}/geocode/autocomplete",
+        params={"api_key": getApiKey(), "text": text, "size": size},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise readError(response)
+
+    results = []
+    for feature in response.json()["features"]:
+        lon, lat = feature["geometry"]["coordinates"][:2]
+        results.append(((lat, lon), feature["properties"]["label"]))
+    return results
+
+
 def requestDirections(coordinates: list[Point], alternatives: bool) -> list[dict]:
     lonLatCoordinates = []
     for lat, lon in coordinates:
