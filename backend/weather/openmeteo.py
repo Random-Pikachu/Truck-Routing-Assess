@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import httpx
+from django.core.cache import cache
 
 from routing.checkpoints import Checkpoint, Point
 
@@ -16,6 +17,7 @@ MAX_PARALLEL_REQUESTS = 4
 GRID_DEGREES = 0.1
 FORECAST_HORIZON_DAYS = 15
 ONE_HOUR = timedelta(hours=1)
+WEATHER_CACHE_SECONDS = 30 * 60  # forecasts are updated about every hour
 
 
 @dataclass(frozen=True)
@@ -149,11 +151,18 @@ def fetchHourly(
             seen.add(key)
             uniqueKeys.append(key)
 
-    chunks = []
-    for i in range(0, len(uniqueKeys), CHUNK_SIZE):
-        chunks.append(uniqueKeys[i : i + CHUNK_SIZE])
-
     seriesByKey: dict[Point, HourlySeries] = {}
+    missingKeys = []
+    for key in uniqueKeys:
+        series = cachedSeries(key, startHour, endHour)
+        if series is None:
+            missingKeys.append(key)
+        else:
+            seriesByKey[key] = series
+
+    chunks = []
+    for i in range(0, len(missingKeys), CHUNK_SIZE):
+        chunks.append(missingKeys[i : i + CHUNK_SIZE])
     if not chunks:
         return seriesByKey
 
@@ -166,8 +175,46 @@ def fetchHourly(
             results = futures[c].result()
             for i in range(len(chunks[c])):
                 seriesByKey[chunks[c][i]] = results[i]
+                storeSeries(chunks[c][i], results[i])
 
     return seriesByKey
+
+
+def cellCacheKey(key: Point) -> str:
+    return f"meteo:{key[0]}:{key[1]}"
+
+
+def cachedSeries(key: Point, startHour: datetime, endHour: datetime) -> HourlySeries | None:
+    hours = cache.get(cellCacheKey(key))
+    if hours is None:
+        return None
+
+    times: list[datetime] = []
+    wind: list[float | None] = []
+    gust: list[float | None] = []
+    rain: list[float | None] = []
+    snow: list[float | None] = []
+    hour = startHour
+    while hour <= endHour:
+        values = hours.get(hour.strftime(TIME_FORMAT))
+        if values is None:
+            return None  # any missing hour means the cell has to be fetched again
+        times.append(hour)
+        wind.append(values[0])
+        gust.append(values[1])
+        rain.append(values[2])
+        snow.append(values[3])
+        hour += ONE_HOUR
+
+    return HourlySeries(times=times, wind=wind, gust=gust, rain=rain, snow=snow)
+
+
+def storeSeries(key: Point, series: HourlySeries) -> None:
+    hours = cache.get(cellCacheKey(key)) or {}
+    for i in range(len(series.times)):
+        hourText = series.times[i].strftime(TIME_FORMAT)
+        hours[hourText] = (series.wind[i], series.gust[i], series.rain[i], series.snow[i])
+    cache.set(cellCacheKey(key), hours, WEATHER_CACHE_SECONDS)
 
 
 def hourIndex(series: HourlySeries, hour: datetime) -> int | None:

@@ -40,5 +40,15 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# In-process cache for geocoding, routes and weather. Swap the backend for Redis
+# when running more than one server process.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "spotter",
+        "OPTIONS": {"MAX_ENTRIES": 10000},
+    }
+}
+
 # The React dev server and, in production, the hosted frontend
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")

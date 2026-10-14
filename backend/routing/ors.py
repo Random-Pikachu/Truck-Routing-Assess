@@ -1,9 +1,11 @@
+import hashlib
 import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from django.core.cache import cache
 from dotenv import load_dotenv
 
 from routing.checkpoints import Point, Step, haversine
@@ -21,6 +23,10 @@ SHORT_TRIP_MAX_MILES = 40
 ALTERNATIVES_LIMIT_ERROR = 2004
 VIA_OFFSET_FRACTION = 0.25
 
+# places and roads barely change, so a day is safe
+GEOCODE_CACHE_SECONDS = 24 * 60 * 60
+ROUTES_CACHE_SECONDS = 24 * 60 * 60
+
 
 @dataclass(frozen=True)
 class RouteOption:
@@ -35,6 +41,12 @@ class OrsError(RuntimeError):
     def __init__(self, code: int | None, message: str):
         super().__init__(f"ORS error {code}: {message}")
         self.code = code
+
+
+def textCacheKey(prefix: str, text: str) -> str:
+    # hashed so spaces and punctuation in place names are safe in any cache backend
+    digest = hashlib.sha256(text.strip().lower().encode()).hexdigest()[:32]
+    return f"{prefix}:{digest}"
 
 
 def getApiKey() -> str:
@@ -56,6 +68,11 @@ def readError(response: httpx.Response) -> OrsError:
 
 
 def geocode(text: str) -> tuple[Point, str]:
+    key = textCacheKey("ors:geocode", text)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
     response = httpx.get(
         f"{ORS_BASE_URL}/geocode/search",
         params={"api_key": getApiKey(), "text": text, "size": 1},
@@ -69,10 +86,17 @@ def geocode(text: str) -> tuple[Point, str]:
         raise ValueError(f"No location found for '{text}'")
 
     lon, lat = features[0]["geometry"]["coordinates"][:2]
-    return (lat, lon), features[0]["properties"]["label"]
+    result = (lat, lon), features[0]["properties"]["label"]
+    cache.set(key, result, GEOCODE_CACHE_SECONDS)
+    return result
 
 
 def autocomplete(text: str, size: int = 5) -> list[tuple[Point, str]]:
+    key = textCacheKey(f"ors:autocomplete:{size}", text)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
     response = httpx.get(
         f"{ORS_BASE_URL}/geocode/autocomplete",
         params={"api_key": getApiKey(), "text": text, "size": size},
@@ -85,6 +109,7 @@ def autocomplete(text: str, size: int = 5) -> list[tuple[Point, str]]:
     for feature in response.json()["features"]:
         lon, lat = feature["geometry"]["coordinates"][:2]
         results.append(((lat, lon), feature["properties"]["label"]))
+    cache.set(key, results, GEOCODE_CACHE_SECONDS)
     return results
 
 
@@ -159,6 +184,11 @@ def isDuplicate(candidate: RouteOption, routes: list[RouteOption]) -> bool:
 
 
 def getRouteOptions(origin: Point, destination: Point) -> list[RouteOption]:
+    key = f"ors:routes:{origin[0]:.5f},{origin[1]:.5f}:{destination[0]:.5f},{destination[1]:.5f}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
     routes = []
 
     if haversine(origin, destination) <= SHORT_TRIP_MAX_MILES:
@@ -186,4 +216,5 @@ def getRouteOptions(origin: Point, destination: Point) -> list[RouteOption]:
             if not isDuplicate(candidate, routes):
                 routes.append(candidate)
 
+    cache.set(key, routes, ROUTES_CACHE_SECONDS)
     return routes
