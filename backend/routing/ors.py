@@ -10,6 +10,7 @@ from django.core.cache import cache
 from dotenv import load_dotenv
 
 from routing.checkpoints import Point, Step, haversine
+from routing.similarity import isSameRoad
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -193,7 +194,9 @@ def parseRoute(feature: dict, routeId: str) -> RouteOption:
     )
 
 
-def viaPoints(origin: Point, destination: Point) -> tuple[Point, Point]:
+def viaPoints(
+    origin: Point, destination: Point, fraction: float = VIA_OFFSET_FRACTION
+) -> tuple[Point, Point]:
     midLat = (origin[0] + destination[0]) / 2
     midLon = (origin[1] + destination[1]) / 2
     dLat = destination[0] - origin[0]
@@ -204,7 +207,7 @@ def viaPoints(origin: Point, destination: Point) -> tuple[Point, Point]:
 
     # unit vector perpendicular to the origin -> destination line
     perpLat, perpLon = -dLon / length, dLat / length
-    offset = VIA_OFFSET_FRACTION * length
+    offset = fraction * length
 
     left = (midLat + perpLat * offset, midLon + perpLon * offset)
     right = (midLat - perpLat * offset, midLon - perpLon * offset)
@@ -217,7 +220,12 @@ def isDuplicate(candidate: RouteOption, routes: list[RouteOption]) -> bool:
         sameTime = abs(route.totalSeconds - candidate.totalSeconds) < 60
         if sameMiles and sameTime:
             return True
-    return False
+
+    # a detour can rejoin the direct road and differ by a few miles only
+    others = []
+    for route in routes:
+        others.append(route.points)
+    return isSameRoad(candidate.points, others)
 
 
 def getRouteOptions(origin: Point, destination: Point) -> list[RouteOption]:
