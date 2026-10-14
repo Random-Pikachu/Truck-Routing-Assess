@@ -10,6 +10,7 @@ from risk.scoring import (
     RouteSummary,
     compareRoutes,
     decidingRule,
+    formatDuration,
     generateRouteSummary,
     milesPerRisk,
     ownedMiles,
@@ -324,7 +325,9 @@ def testRecommendRouteSingleRoute() -> None:
 
 def testRecommendRouteOnlyDrivableRoute() -> None:
     _, reason = recommendRoute([ROUTE_D, ROUTE_A])
-    assert reason == "Route A recommended over Route D: the only drivable route."
+    assert reason == (
+        "Route A recommended over Route D: the only drivable route, but it takes 12 min longer."
+    )
 
 
 def testRecommendRouteNoRouteIsSafe() -> None:
@@ -354,4 +357,41 @@ def testRecommendRouteFromGeneratedSummaries() -> None:
     )
     ranked, reason = recommendRoute([stormy, calm])
     assert ids(ranked) == ["North", "South"]
-    assert reason == "Route North recommended over Route South: fewer severe miles (0.0 vs 25.0)."
+    assert reason == (
+        "Route North recommended over Route South: fewer severe miles (0.0 vs 25.0), "
+        "but it takes 7 min longer."
+    )
+
+
+def testReasonSaysWhenTheSaferRouteIsMuchSlower() -> None:
+    """The Casper -> Denver case: one Moderate stretch, the safe route is 3h 49m longer."""
+    safe = summary("B", avgRisk=0.0, hours=37080 / 3600)
+    fast = summary("A", avgRisk=0.09, hours=23340 / 3600)
+    ranked, reason = recommendRoute([fast, safe])
+    assert ids(ranked) == ["B", "A"]  # the brief's order still decides
+    assert reason == (
+        "Route B recommended over Route A: lower average risk (0.00 vs 0.09), "
+        "but it takes 3h 49m longer."
+    )
+
+
+def testReasonHasNoTradeoffWhenTheBestRouteIsAlsoFaster() -> None:
+    safe = summary("B", avgRisk=0.0, hours=3600 / 3600)
+    risky = summary("A", avgRisk=0.5, hours=7200 / 3600)
+    _, reason = recommendRoute([risky, safe])
+    assert "longer" not in reason
+
+
+def testReasonIgnoresLessThanAMinute() -> None:
+    safe = summary("B", avgRisk=0.0, hours=3630 / 3600)
+    risky = summary("A", avgRisk=0.5, hours=3600 / 3600)
+    _, reason = recommendRoute([risky, safe])
+    assert "longer" not in reason
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [(60, "1 min"), (59 * 60, "59 min"), (3600, "1h 00m"), (13740, "3h 49m"), (90, "2 min")],
+)
+def testFormatDuration(seconds: float, expected: str) -> None:
+    assert formatDuration(seconds) == expected

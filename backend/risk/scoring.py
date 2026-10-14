@@ -26,7 +26,6 @@ class RouteSummary:
     drivable: bool
 
 
-
 def ownedMiles(checkpointMiles: list[float], totalMiles: float) -> list[float]:
     owned = []
     last = len(checkpointMiles) - 1
@@ -60,7 +59,6 @@ def milesPerRisk(
     return milesByLevel, avgRisk
 
 
-
 def generateRouteSummary(
     routeId: str,
     checkpointMiles: list[float],
@@ -80,7 +78,6 @@ def generateRouteSummary(
     )
 
     return summary
-
 
 
 def compareRoutes(a: RouteSummary, b: RouteSummary) -> int:
@@ -112,6 +109,14 @@ def compareRoutes(a: RouteSummary, b: RouteSummary) -> int:
 
 def rankRoutes(summaries: list[RouteSummary]) -> list[RouteSummary]:
     return sorted(summaries, key=cmp_to_key(compareRoutes))
+
+
+def formatDuration(seconds: float) -> str:
+    totalMinutes = round(seconds / 60)
+    hours, minutes = divmod(totalMinutes, 60)
+    if hours == 0:
+        return f"{minutes} min"
+    return f"{hours}h {minutes:02d}m"
 
 
 def decidingRule(best: RouteSummary, runnerUp: RouteSummary) -> str:
@@ -153,4 +158,10 @@ def recommendRoute(summaries: list[RouteSummary]) -> tuple[list[RouteSummary], s
 
     runnerUp = ranked[1]
     reason = f"Route {best.routeId} recommended over Route {runnerUp.routeId}: "
-    return ranked, reason + decidingRule(best, runnerUp) + "."
+    reason += decidingRule(best, runnerUp)
+
+    # the safer route can be a lot slower, say so instead of hiding it
+    extraSeconds = best.totalSeconds - runnerUp.totalSeconds
+    if extraSeconds >= 60:
+        reason += f", but it takes {formatDuration(extraSeconds)} longer"
+    return ranked, reason + "."
