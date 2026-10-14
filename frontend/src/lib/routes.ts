@@ -1,4 +1,5 @@
 import type { Route } from './api'
+import { formatDuration } from './format'
 import { ownedStretches } from './geometry'
 import { riskMeta } from './risk'
 
@@ -33,11 +34,15 @@ export function routeTradeoff(route: Route, best: Route | null): Tradeoff {
   if (!route.summary.drivable) return { label: 'Not drivable', tone: 'danger' }
   if (route.recommended || !best) return { label: 'Recommended', tone: 'positive' }
 
+  // a riskier route can still be a lot faster, the driver should see what the safer pick costs
+  const saved = best.totalSeconds - route.totalSeconds
+  const faster = saved >= 60 ? ` · ${formatDuration(saved)} faster` : ''
+
   const severe = milesAt(route, 'SEVERE') - milesAt(best, 'SEVERE')
-  if (severe > 1) return { label: `+${Math.round(severe)} mi severe`, tone: 'danger' }
+  if (severe > 1) return { label: `+${Math.round(severe)} mi severe${faster}`, tone: 'danger' }
   const high = milesAt(route, 'HIGH') - milesAt(best, 'HIGH')
-  if (high > 1) return { label: `+${Math.round(high)} mi high risk`, tone: 'caution' }
-  if (route.summary.avgRisk - best.summary.avgRisk > 0.05) return { label: 'More exposure', tone: 'caution' }
+  if (high > 1) return { label: `+${Math.round(high)} mi high risk${faster}`, tone: 'caution' }
+  if (route.summary.avgRisk - best.summary.avgRisk > 0.05) return { label: `More exposure${faster}`, tone: 'caution' }
 
   const seconds = route.totalSeconds - best.totalSeconds
   if (seconds >= 60) {
