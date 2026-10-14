@@ -1,7 +1,9 @@
 import { MapPinOff } from 'lucide-react'
 import { Component, type ReactNode } from 'react'
 
-type Props = { children: ReactNode; offsetLeft: number }
+import type { Obstruction } from '../lib/camera'
+
+type Props = { children: ReactNode; obstruction: Obstruction }
 type State = { failed: boolean }
 
 // MapLibre throws when WebGL 2 is unavailable; keep the planner usable without the map
@@ -17,7 +19,7 @@ export class MapErrorBoundary extends Component<Props, State> {
     return (
       <div
         className="fixed inset-0 z-0 flex items-center justify-center bg-[oklch(0.95_0.004_256)] p-6"
-        style={{ paddingInlineStart: this.props.offsetLeft + 24 }}
+        style={{ paddingInlineStart: this.props.obstruction.left + 24, paddingBottom: this.props.obstruction.bottom + 24 }}
         role="region"
         aria-label="Route map"
       >

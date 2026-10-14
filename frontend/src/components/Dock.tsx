@@ -14,6 +14,7 @@ type Props = {
 }
 
 const ORDER: Snap[] = ['peek', 'half', 'full']
+const HANDLE_HEIGHT = 28
 
 function snapHeights(viewportHeight: number): Record<Snap, number> {
   return {
@@ -122,11 +123,16 @@ export function Dock({ isMobile, snap, topPill, children, onSnap, onObstruction 
               onSnap(nextSnap)
             }
           }}
-          className="flex h-7 w-full shrink-0 touch-none cursor-grab items-center justify-center"
+          className="flex w-full shrink-0 touch-none cursor-grab items-center justify-center"
+          style={{ height: HANDLE_HEIGHT }}
         >
           <span className="h-1 w-9 rounded-full bg-ink/20" aria-hidden="true" />
         </button>
-        <div className="scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 pb-[max(12px,env(safe-area-inset-bottom))]">
+        {/* sized to the visible part of the sheet, so every row can be scrolled into view */}
+        <div
+          className="scroll-area overflow-y-auto overflow-x-hidden overscroll-contain px-2 pb-[max(12px,env(safe-area-inset-bottom))]"
+          style={{ height: Math.max(0, clamped - HANDLE_HEIGHT) }}
+        >
           {children}
         </div>
       </section>

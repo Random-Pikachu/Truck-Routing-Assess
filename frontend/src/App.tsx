@@ -320,7 +320,7 @@ export default function App() {
 
   return (
     <>
-      <MapErrorBoundary offsetLeft={obstruction.left}>
+      <MapErrorBoundary obstruction={obstruction}>
         <MapCanvas
         plan={plan}
         selectedRouteId={selectedRouteId}
