@@ -27,10 +27,9 @@ export function riskColorExpression(property: string): ExpressionSpecification {
   return expression as ExpressionSpecification
 }
 
-// heatmap points store the risk as a level number (0 = LOW ... 4 = NO_TRAVEL)
-export function riskLevelColorExpression(property: string): ExpressionSpecification {
-  const expression: unknown[] = ['match', ['get', property]]
-  for (const meta of RISK_LEVELS) expression.push(meta.level, meta.color)
-  expression.push('rgba(0, 0, 0, 0)')
-  return expression as ExpressionSpecification
+export function withAlpha(hex: string, alpha: number): string {
+  const red = parseInt(hex.slice(1, 3), 16)
+  const green = parseInt(hex.slice(3, 5), 16)
+  const blue = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }

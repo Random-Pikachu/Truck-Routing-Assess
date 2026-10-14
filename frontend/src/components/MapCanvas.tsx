@@ -1,15 +1,18 @@
 import * as maplibregl from 'maplibre-gl'
 import type { GeoJSONSource, MapGeoJSONFeature } from 'maplibre-gl'
 import type { Feature, FeatureCollection } from 'geojson'
+// Vite moves pre-bundled deps, which breaks MapLibre's own worker lookup; point it at the file explicitly
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { Checkpoint, Heatmap, LatLon, Route, TripPlan, Waypoint } from '../lib/api'
 import { arrivalEasing, cameraDuration, framingPadding, type Obstruction } from '../lib/camera'
 import { formatClock, formatDuration, formatInches } from '../lib/format'
 import { cumulativeMiles, ownedStretches, pointAlong, slicePolyline, toLngLat } from '../lib/geometry'
-import { riskColorExpression, riskLevelColorExpression, riskMeta } from '../lib/risk'
+import { RISK_LEVELS, riskColorExpression, riskMeta, withAlpha } from '../lib/risk'
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
+maplibregl.setWorkerUrl(workerUrl)
 const INK = '#1e2533'
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
@@ -190,22 +193,39 @@ export function MapCanvas(props: Props) {
       map.addSource('active-risk', { type: 'geojson', data: EMPTY })
       map.addSource('checkpoints', { type: 'geojson', data: EMPTY })
 
-      // forecast layer: soft circles sized to cover the 0.25 degree grid at every zoom
-      map.addLayer(
-        {
-          id: 'forecast',
-          type: 'circle',
-          source: 'forecast',
-          layout: { visibility: 'none' },
-          paint: {
-            'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 3, 1.6, 12, 820],
-            'circle-color': '#000000',
-            'circle-opacity': 0.32,
-            'circle-blur': 0.85,
+      // forecast: one heatmap per risk level so the corridor reads as smooth areas, not dots.
+      // the radius doubles per zoom to keep covering the 0.25 degree grid, capped for GPU cost.
+      // low risk stays quiet so the risky areas are what stands out
+      for (const level of RISK_LEVELS) {
+        const strength = level.level === 0 ? 0.3 : 0.75
+        map.addLayer(
+          {
+            id: `forecast-${level.level}`,
+            type: 'heatmap',
+            source: 'forecast',
+            layout: { visibility: 'none' },
+            paint: {
+              'heatmap-radius': ['interpolate', ['exponential', 2], ['zoom'], 3, 3.5, 10, 448],
+              'heatmap-intensity': 1,
+              'heatmap-opacity': strength,
+              'heatmap-color': [
+                'interpolate',
+                ['linear'],
+                ['heatmap-density'],
+                0,
+                withAlpha(level.color, 0),
+                0.2,
+                withAlpha(level.color, 0.45),
+                0.6,
+                withAlpha(level.color, 0.8),
+                1,
+                withAlpha(level.color, 0.9),
+              ],
+            },
           },
-        },
-        firstLabel,
-      )
+          firstLabel,
+        )
+      }
 
       const round = { 'line-cap': 'round', 'line-join': 'round' } as const
       const alternative = ['==', ['get', 'active'], false] as maplibregl.FilterSpecification
@@ -348,14 +368,16 @@ export function MapCanvas(props: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map) return
-    if (heatmapHour === null || !heatmap) {
-      map.setLayoutProperty('forecast', 'visibility', 'none')
-      return
-    }
     const key = `r${heatmapHour}`
-    map.setPaintProperty('forecast', 'circle-color', riskLevelColorExpression(key))
-    map.setFilter('forecast', ['has', key])
-    map.setLayoutProperty('forecast', 'visibility', 'visible')
+    for (const level of RISK_LEVELS) {
+      const id = `forecast-${level.level}`
+      if (heatmapHour === null || !heatmap) {
+        map.setLayoutProperty(id, 'visibility', 'none')
+        continue
+      }
+      map.setFilter(id, ['==', ['get', key], level.level])
+      map.setLayoutProperty(id, 'visibility', 'visible')
+    }
   }, [ready, heatmap, heatmapHour])
 
   // ---- focused checkpoint ring and popup -----------------------------------
@@ -426,13 +448,12 @@ export function MapCanvas(props: Props) {
     })
   }, [ready, framing, route])
 
+  // MapLibre's unlayered `.maplibregl-map { position: relative }` beats Tailwind's layered `fixed`,
+  // so the fixed full-bleed box is a wrapper and the map fills it
   return (
-    <div
-      ref={containerRef}
-      className="fixed inset-0 z-0"
-      role="region"
-      aria-label="Route map. Click the map to place the origin or destination."
-    />
+    <div className="fixed inset-0 z-0" role="region" aria-label="Route map. Click the map to place the origin or destination.">
+      <div ref={containerRef} className="size-full" />
+    </div>
   )
 }
 
