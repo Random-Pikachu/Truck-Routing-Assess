@@ -1,1 +1,145 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Ink: one cool neutral hue, three steps */
+  --color-ink: oklch(0.22 0.02 256);
+  --color-ink-muted: oklch(0.46 0.018 256);
+  --color-ink-faint: oklch(0.6 0.014 256);
+
+  /* Surfaces float over unpredictable map tiles */
+  --color-surface: oklch(0.992 0.002 256 / 0.93);
+  --color-surface-solid: oklch(0.995 0.002 256);
+  --color-fill: oklch(0.955 0.004 256);
+  --color-fill-strong: oklch(0.925 0.006 256);
+  --color-hairline: oklch(0.22 0.02 256 / 0.1);
+  --color-accent: oklch(0.55 0.17 252);
+  --color-danger: oklch(0.55 0.2 27);
+
+  /* Risk ramp, shared by the route line, checkpoints, strips and the forecast layer */
+  --color-risk-low: #2f9e6e;
+  --color-risk-moderate: #d9a90a;
+  --color-risk-high: #ef7a1a;
+  --color-risk-severe: #d6322c;
+  --color-risk-no-travel: #6b1f5c;
+
+  --shadow-dock:
+    0 0 0 1px oklch(0 0 0 / 0.08),
+    0 2px 6px -2px oklch(0 0 0 / 0.08),
+    0 12px 32px -6px oklch(0 0 0 / 0.16);
+  --shadow-border:
+    0 0 0 1px oklch(0 0 0 / 0.07),
+    0 1px 2px -1px oklch(0 0 0 / 0.07),
+    0 2px 4px 0 oklch(0 0 0 / 0.04);
+  --shadow-border-hover:
+    0 0 0 1px oklch(0 0 0 / 0.1),
+    0 1px 2px -1px oklch(0 0 0 / 0.09),
+    0 2px 4px 0 oklch(0 0 0 / 0.06);
+
+  --ease-arrival: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overflow: hidden;
+    background: oklch(0.95 0.004 256);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button {
+    opacity: 0.4;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+@layer components {
+  .dock-surface {
+    background: var(--color-surface);
+    box-shadow: var(--shadow-dock);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  }
+
+  /* Pressable controls: tactile, interruptible */
+  .pressable {
+    transition-property: scale, background-color, box-shadow, color;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  .pressable:active:not(:disabled) {
+    scale: 0.96;
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--color-fill) 0%, var(--color-fill-strong) 50%, var(--color-fill) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* MapLibre chrome restyled to match the dock */
+.maplibregl-popup-content {
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--color-surface-solid);
+  box-shadow: var(--shadow-dock);
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+}
+.maplibregl-popup-tip {
+  display: none;
+}
+.maplibregl-popup-close-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 18px;
+  color: var(--color-ink-muted);
+}
+.maplibregl-ctrl-group {
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-border) !important;
+  background: var(--color-surface-solid) !important;
+}
+.maplibregl-ctrl-group button {
+  width: 36px !important;
+  height: 36px !important;
+}
+.maplibregl-ctrl-attrib {
+  font-size: 11px;
+  border-radius: 8px 0 0 0;
+}
