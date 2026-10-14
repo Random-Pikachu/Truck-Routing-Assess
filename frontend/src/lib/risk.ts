@@ -1,3 +1,5 @@
+import type { ExpressionSpecification } from 'maplibre-gl'
+
 import type { RiskName } from './api'
 
 export type RiskMeta = { name: RiskName; label: string; color: string; level: number }
@@ -18,9 +20,17 @@ export function riskMeta(name: RiskName): RiskMeta {
   return BY_NAME[name]
 }
 
-export function riskColorExpression(property: string): unknown[] {
+export function riskColorExpression(property: string): ExpressionSpecification {
   const expression: unknown[] = ['match', ['get', property]]
   for (const meta of RISK_LEVELS) expression.push(meta.name, meta.color)
   expression.push('#94a3b8')
-  return expression
+  return expression as ExpressionSpecification
+}
+
+// heatmap points store the risk as a level number (0 = LOW ... 4 = NO_TRAVEL)
+export function riskLevelColorExpression(property: string): ExpressionSpecification {
+  const expression: unknown[] = ['match', ['get', property]]
+  for (const meta of RISK_LEVELS) expression.push(meta.level, meta.color)
+  expression.push('rgba(0, 0, 0, 0)')
+  return expression as ExpressionSpecification
 }
