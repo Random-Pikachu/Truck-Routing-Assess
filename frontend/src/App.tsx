@@ -5,6 +5,7 @@ import { CheckpointList } from './components/CheckpointList'
 import { Dock, type Snap } from './components/Dock'
 import { ForecastScrubber, type ForecastStatus } from './components/ForecastScrubber'
 import { MapCanvas, type FramingRequest, type FramingTarget } from './components/MapCanvas'
+import { MapErrorBoundary } from './components/MapErrorBoundary'
 import { RouteList } from './components/RouteList'
 import { EmptyState, ErrorState, LoadingState } from './components/States'
 import { TripOptions } from './components/TripOptions'
@@ -319,7 +320,8 @@ export default function App() {
 
   return (
     <>
-      <MapCanvas
+      <MapErrorBoundary offsetLeft={obstruction.left}>
+        <MapCanvas
         plan={plan}
         selectedRouteId={selectedRouteId}
         origin={markerOrigin}
@@ -335,7 +337,8 @@ export default function App() {
         onOpenCheckpoint={setOpenCheckpoint}
         onMapClick={onMapClick}
         onMoveWaypoint={placeWaypoint}
-      />
+        />
+      </MapErrorBoundary>
 
       <Dock isMobile={isMobile} snap={snap} topPill={topPill} onSnap={setSnap} onObstruction={setDockObstruction}>
         <div className="grid gap-4">
